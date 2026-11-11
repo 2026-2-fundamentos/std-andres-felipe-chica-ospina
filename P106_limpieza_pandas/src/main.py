@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pandas as pd
+import re
 
 ACTIVITY_DIR = Path(__file__).resolve().parents[1]
 INPUT_FILE = ACTIVITY_DIR / "data" / "ventas.csv"
@@ -91,9 +92,124 @@ def clean_purchase_date_column(df):
 
         return series.str.replace(r"(\d{2})/(\d{2})/(\d{4})", convert_date, regex=True)
 
+    def convert_dd_mm_yyyy_to_yyyy_mm_dd_separated_with_dots(series):
+        # Corrige fechas en formato "DD.MM.YYYY" a "YYYY-MM-DD"
+        return series.str.replace(r"(\d{2})\.(\d{2})\.(\d{4})", r"\3-\2-\1", regex=True)
+
+    def convert_dd_mm_yy_to_yyyy_mm_dd_separated_with_hyphens(series):
+        # Corrige fechas en formato "DD-MM-YY" a "YYYY-MM-DD"
+        return series.str.replace(
+            r"^(\d{2})-(\d{2})-(\d{2})$", r"20\3-\2-\1", regex=True
+        )
+
     df["purchase_date"] = df["purchase_date"].str.strip()
     df["purchase_date"] = convert_yyyy_s_mm_s_dd_to_yyyy_mm_dd(df["purchase_date"])
     df["purchase_date"] = convert_mmddyyyy_to_yyyy_mm_dd(df["purchase_date"])
+    df["purchase_date"] = convert_dd_mm_yyyy_to_yyyy_mm_dd_separated_with_dots(
+        df["purchase_date"]
+    )
+    df["purchase_date"] = convert_dd_mm_yy_to_yyyy_mm_dd_separated_with_hyphens(
+        df["purchase_date"]
+    )
+
+    return df
+
+
+def clean_amount_column(df):
+
+    def clean_strings_ending_with_k(series):
+        # Convierte valores como "1.5K" a "1500"
+        def convert_value(value):
+            if isinstance(value, str) and value.endswith("K"):
+                try:
+                    return int(float(value[:-1]) * 1000)
+                except ValueError:
+                    return value
+            return value
+
+        return series.apply(convert_value)
+
+    def clean_strings_starting_with_COP(series):
+        # Convierte valores como "COP 1,250,000" a "1250000"
+        def convert_value(value):
+            if isinstance(value, str) and value.startswith("COP"):
+                try:
+                    return int(value[3:].replace(",", "").strip())
+                except ValueError:
+                    return value
+            return value
+
+        return series.apply(convert_value)
+
+    def clean_strings_starting_with_dollar(series):
+        # Convierte valores como "$1,250,000" a "1250000"
+        def convert_value(value):
+            if isinstance(value, str) and value.startswith("$"):
+                try:
+                    return int(value[1:].replace(",", "").strip())
+                except ValueError:
+                    return value
+            return value
+
+        return series.apply(convert_value)
+
+    def remove_dots(series):
+        # Elimina los puntos de los valores numéricos
+        def convert_value(value):
+            if isinstance(value, str):
+                try:
+                    return int(value.replace(".", "").strip())
+                except ValueError:
+                    return value
+            return value
+
+        return series.apply(convert_value)
+
+    df["amount"] = df["amount"].str.strip()
+    df["amount"] = clean_strings_ending_with_k(df["amount"])
+    df["amount"] = clean_strings_starting_with_COP(df["amount"])
+    df["amount"] = clean_strings_starting_with_dollar(df["amount"])
+    df["amount"] = remove_dots(df["amount"])
+
+    return df
+
+
+def clean_discount_column(df):
+    # Limpia la columna de descuento
+    df["discount"] = df["discount"].str.strip()
+    df["discount"] = df["discount"].str.replace("%", "", regex=False)
+    df["discount"] = df["discount"].map(
+        lambda x: float(x) / 100 if not pd.isna(x) and float(x) > 1 else x
+    )
+
+    return df
+
+def clean_weight_column(df):
+    # Normaliza todos los pesos a kilogramos (float)
+    def convert_value(value):
+        if not isinstance(value, str):
+            return value  # NaN u otros valores se dejan igual
+
+        # "2,5 kg" -> "2.5 kg"
+        value = value.strip().lower().replace(",", ".")
+
+        match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(ton|kg|g)?", value)
+        if not match:
+            return value  # formato inesperado, no lo tocamos
+
+        number, unit = match.groups()
+        number = float(number)
+
+        if unit == "ton":
+            number *= 1000  # 0.0025 ton -> 2.5 kg
+        elif unit == "g":
+            number /= 1000  # 10000 g -> 10 kg
+        # unit == "kg" o None: ya está en kg
+
+        return round(number, 4)
+
+    df["weight"] = df["weight"].apply(convert_value)
+
     return df
 
 
@@ -104,6 +220,9 @@ def main():
     df = clean_country_column(df)
     df = clean_city_column(df)
     df = clean_purchase_date_column(df)
+    df = clean_amount_column(df)
+    df = clean_discount_column(df)
+    df = clean_weight_column(df)
     df.to_csv(OUTPUT_FILE, index=False)
 
 
