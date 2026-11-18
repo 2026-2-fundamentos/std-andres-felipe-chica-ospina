@@ -1,3 +1,8 @@
+from pathlib import Path
+import pandas as pd
+
+PROJECT_FILE = Path(__file__).resolve().parents[1]
+DATA_DIR = PROJECT_FILE / "data"
 def pregunta_10():
     """
     Usando `data/tbl0.tsv`, construya para cada categoría de la columna `c1`
@@ -15,4 +20,10 @@ def pregunta_10():
         ...
     """
 
-    raise NotImplementedError
+    df = pd.read_csv(DATA_DIR / "tbl0.tsv", sep="\t")
+
+    grouped = df.groupby("c1")["c2"].apply(
+        lambda s: ":".join(str(v) for v in sorted(s))
+    )
+
+    return grouped.to_frame()
